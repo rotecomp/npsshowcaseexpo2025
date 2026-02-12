@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>แบบสอบถาม NPS Showcase Expo 2025</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, collection, getDocs, query, where, limit, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Config Firebase ---
+        const myCustomConfig = {
+            apiKey: "AIzaSyAyOP53ZNSmVLZkFt74O4GAxugyEXABdxI",
+            authDomain: "nps2025-bb8fe.firebaseapp.com",
+            projectId: "nps2025-bb8fe",
+            storageBucket: "nps2025-bb8fe.firebasestorage.app",
+            messagingSenderId: "608268194621",
+            appId: "1:608268194621:web:fc42a7f3add4da6b122b54"
+        };
+
+        const app = initializeApp(myCustomConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = 'nps-expo-v2';
+
+        let currentUser = null;
+
+        // ฟังก์ชันบันทึกข้อมูล (ไม่ต้องรอคิวเลขที่แล้ว)
+        window.saveSurveyToCloud = async (data) => {
+            if (!currentUser) throw new Error("ระบบกำลังเชื่อมต่อ... กรุณารอสักครู่");
+            
+            // บันทึกข้อมูลลง Firestore
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'surveys'), {
+                ...data, 
+                timestamp: new Date().toISOString(), 
+                userId: currentUser.uid,
+                createdAt: new Date() // เพิ่ม Field นี้ไว้เรียงลำดับเวลาได้ง่าย
+            });
+        };
+
+        // [แก้ไขใหม่] สร้างเลขที่แบบสุ่ม 6 หลัก (แก้ปัญหาคอขวด Transaction)
+        window.generateCertNumber = () => {
+            // สุ่มเลข 100000 - 999999
+            const randomNum = Math.floor(100000 + Math.random() * 900000);
+            return randomNum.toString(); 
+        };
+
+        // [แก้ไขใหม่] ค้นหาแบบเจาะจง (ประหยัดโควตาและเร็วกว่า)
+        window.searchSurveyByName = async (nameQuery) => {
+            if (!currentUser || !nameQuery) return [];
+            
+            // ใช้เทคนิคค้นหาแบบ StartsWith ของ Firestore
+            const surveysRef = collection(db, 'artifacts', appId, 'public', 'data', 'surveys');
+            const q = query(
+                surveysRef, 
+                where('fullName', '>=', nameQuery),
+                where('fullName', '<=', nameQuery + '\uf8ff'),
+                limit(10) // ดึงมาแค่ 10 รายการพอ เพื่อความเร็ว
+            );
+            
+            const querySnapshot = await getDocs(q);
+            return querySnapshot.docs.map(doc => doc.data());
+        };
+
+        // ฟังก์ชันดึงทั้งหมด (เก็บไว้ใช้เฉพาะ Admin ตอน Export)
+        window.fetchAllSurveysForAdmin = async () => {
+            if (!currentUser) return [];
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'surveys'), orderBy('createdAt', 'desc'), limit(1000));
+            const querySnapshot = await getDocs(q);
+            return querySnapshot.docs.map(doc => doc.data());
+        };
+
+        onAuthStateChanged(auth, (user) => { currentUser = user; });
+        signInAnonymously(auth).catch((error) => console.error("Auth Failed:", error));
+    </script>
+
+    <style>
+        body { font-family: 'Prompt', sans-serif; background: linear-gradient(135deg, #0d47a1 0%, #000000 100%); min-height: 100vh; color: #ffffff; }
+        .glass-morphism { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; }
+        .header-gradient { background: linear-gradient(to right, #b3e5fc, #e1f5fe, #f9bdbb); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .input-field { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); color: white; border-radius: 12px; padding: 12px 16px; width: 100%; }
+        .select-black option { color: black !important; }
+        
+        #cert-capture-area {
+            width: 1122px; height: 794px; background: #fff; position: absolute; top: -9999px; left: -9999px; overflow: hidden;
+        }
+        .cert-inner {
+            width: 1122px; height: 794px; position: relative;
+            /* แก้ไข URL รูปภาพให้ถูกต้องตรงนี้ */
+            background-image: url('https://placehold.co/1122x794/EEE/31343C?text=Certificate+Background'); 
+            background-size: 100% 100%; background-repeat: no-repeat;
+        }
+
+        /* ตำแหน่งชื่อ */
+        #display-name {
+            position: absolute; top: 343px; left: 561px;
+            transform: translate(-50%, -50%); 
+            font-size: 42px; font-weight: 600; color: #d32f2f; text-align: center; width: 100%; white-space: nowrap;
+        }
+
+        /* ตำแหน่งเลขที่ */
+        #display-cert-id-wrapper {
+            position: absolute; top: 73px; right: 38px;
+            font-size: 14px; font-weight: 300; color: #000000; /* เปลี่ยนสีเป็นดำถ้าพื้นหลังขาว */
+            text-align: right; display: flex; align-items: center; gap: 6px;
+        }
+
+        .rating-row { 
+            display: grid; 
+            grid-template-columns: 1fr 300px; 
+            gap: 15px; 
+            align-items: center; 
+            padding: 12px 20px; 
+            border-radius: 12px; 
+            background: rgba(255, 255, 255, 0.04); 
+            margin-bottom: 8px; 
+        }
+        .rating-options-container { 
+            display: grid; 
+            grid-template-columns: repeat(5, 1fr); 
+            text-align: center;
+        }
+        @media (max-width: 768px) { 
+            .rating-row { grid-template-columns: 1fr; } 
+            .rating-options-container { display: flex; justify-content: space-around; width: 100%; margin-top: 12px; } 
+        }
+        .radio-box input { width: 22px; height: 22px; cursor: pointer; accent-color: #b3e5fc; }
+        .admin-table th { background: rgba(255,255,255,0.1); padding: 10px; text-align: left; font-size: 14px; color: #90caf9; }
+        .admin-table td { border-bottom: 1px solid rgba(255,255,255,0.05); padding: 10px; font-size: 14px; }
+    </style>
+</head>
+<body class="flex flex-col">
+
+    <nav class="p-4 glass-morphism m-4 flex justify-between items-center sticky top-4 z-50">
+        <div class="flex items-center gap-2 cursor-pointer" onclick="location.reload()">
+            <span class="material-icons text-blue-300">stars</span>
+            <span class="font-bold text-lg header-gradient">NPS Showcase Expo 2025</span>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="showSection('intro')" class="text-xs md:text-sm hover:text-blue-300">หน้าแรก</button>
+            <button onclick="showSection('search')" class="text-xs md:text-sm hover:text-blue-300">ค้นหาเกียรติบัตร</button>
+            <button onclick="openAdmin()" class="text-xs md:text-sm text-yellow-300 border-l border-white/20 pl-3">Admin</button>
+        </div>
+    </nav>
+
+    <main class="flex-grow container mx-auto px-4 py-2">
+        
+        <section id="intro-section" class="max-w-2xl mx-auto glass-morphism p-8">
+            <div class="flex justify-center mb-6">
+                <img src="https://placehold.co/150x150/png?text=Logo" alt="School Logo" class="h-28 w-auto drop-shadow-[0_0_15px_rgba(255,255,255,0.3)] rounded-full">
+            </div>
+            <div class="text-center mb-8">
+                <h1 class="text-2xl font-bold header-gradient mb-4">แบบสอบถามความพึงพอใจ NPS Showcase Expo 2025</h1>
+                <p class="text-gray-300 text-sm">13 กุมภาพันธ์ 2569 ณ โรงเรียนน้ำพองศึกษา</p>
+            </div>
+            <div class="space-y-6 mb-8 text-black">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xl text-blue-300 mb-2 font-bold">1. เพศ</label>
+                        <select id="user-gender" class="input-field select-black text-white py-3 text-lg"><option value="">-- เลือก --</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option><option value="ไม่ประสงค์ระบุ">ไม่ประสงค์ระบุ</option></select>
+                    </div>
+                    <div>
+                        <label class="block text-xl text-blue-300 mb-2 font-bold">2. สถานภาพ</label>
+                        <select id="user-status" class="input-field select-black text-white py-3 text-lg"><option value="">-- เลือก --</option><option value="ผู้บริหาร">ผู้บริหาร</option><option value="ครูหรือบุคลากรทางการศึกษา">ครูหรือบุคลากรทางการศึกษา</option><option value="นักเรียน">นักเรียน</option><option value="อื่น ๆ">อื่น ๆ</option></select>
+                    </div>
+                </div>
+            </div>
+            <button onclick="validateIntro()" class="w-full bg-gradient-to-r from-blue-400 to-pink-300 text-blue-900 font-bold py-4 rounded-2xl text-lg hover:opacity-90 transition shadow-lg">เริ่มทำแบบประเมิน</button>
+        </section>
+
+        <section id="survey-section" class="hidden max-w-5xl mx-auto glass-morphism p-6">
+            <div class="border-b border-white/10 pb-6 mb-4">
+                <h2 class="text-xl md:text-2xl font-bold text-blue-200 mb-6 text-center leading-relaxed">3. ระดับความพึงพอใจต่อการเข้าร่วมงาน NPS Showcase Expo 2025</h2>
+                
+                <div class="bg-white/5 p-6 rounded-xl border border-white/10">
+                    <div class="flex flex-col md:flex-row items-center justify-center gap-2 mb-6">
+                        <span class="font-bold text-blue-300 text-lg border-r-2 border-blue-400/30 pr-4 hidden md:inline">คำชี้แจง</span>
+                        <span class="text-gray-200 text-base">โปรดเลือกช่องที่ตรงกับความพึงพอใจของท่านเพียงระดับเดียว</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-y-3 gap-x-6 text-[15px] text-gray-300 max-w-4xl mx-auto border-t border-white/5 pt-4">
+                        <div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center font-bold">5</span> = พอใจมากที่สุด</div>
+                        <div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center font-bold">4</span> = พอใจมาก</div>
+                        <div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center font-bold">3</span> = ปานกลาง</div>
+                        <div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center font-bold">2</span> = น้อย</div>
+                        <div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center font-bold">1</span> = น้อยที่สุด</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="survey-questions-list" class="space-y-2 mt-6"></div>
+            
+            <div class="pt-6 border-t border-white/10 space-y-6 mt-8">
+                <h3 class="text-lg font-bold text-purple-300 pl-4 border-l-4 border-purple-400">4. ความประทับใจและข้อเสนอแนะ</h3>
+                <div class="space-y-4">
+                    <label class="block text-xl text-gray-300 font-bold">11. บูธที่ "ว้าว" ที่สุดในวันนี้ คือ</label>
+                    <input type="text" id="wow-booth" class="input-field text-base py-3" placeholder="ระบุชื่อบูธหรือกิจกรรม...">
+                    <label class="block text-xl text-gray-300 font-bold">12. สิ่งที่อยากให้มีเพิ่มเติมในงานครั้งหน้า</label>
+                    <textarea id="suggestions" class="input-field text-base h-24" placeholder="ระบุข้อเสนอแนะเพิ่มเติม..."></textarea>
+                </div>
+            </div>
+            
+            <div class="mt-10 flex justify-between">
+                <button onclick="showSection('intro')" class="text-gray-400 hover:text-white transition">ย้อนกลับ</button>
+                <button onclick="validateSurvey()" class="bg-blue-600 px-12 py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-blue-500 transition">ถัดไป</button>
+            </div>
+        </section>
+
+        <section id="final-section" class="hidden max-w-md mx-auto glass-morphism p-8 text-center">
+            <span class="material-icons text-6xl text-blue-300 mb-6">badge</span>
+            <h2 class="text-2xl font-bold mb-8">ระบุข้อมูลเพื่อออกเกียรติบัตร</h2>
+            <div class="text-left space-y-6 mb-8">
+                <label class="block text-sm text-blue-300 font-bold">ชื่อ-นามสกุลจริง</label>
+                <input type="text" id="user-fullname" placeholder="เช่น นายสมชาย ใจดี" class="input-field text-xl py-4 text-center">
+                <label class="block text-sm text-blue-300 font-bold">ชื่อโรงเรียน (ไม่ต้องมีคำว่าโรงเรียน)</label>
+                <input type="text" id="user-school" placeholder="เช่น น้ำพองศึกษา" class="input-field text-xl py-4 text-center">
+            </div>
+            <button onclick="finishProcess()" class="w-full bg-green-500 font-bold py-5 rounded-2xl text-xl shadow-2xl transition transform active:scale-95">ส่งข้อมูลและรับเกียรติบัตร</button>
+        </section>
+
+        <section id="result-section" class="hidden max-w-5xl mx-auto text-center pb-20">
+            <div class="glass-morphism p-10 mb-10">
+                <span class="material-icons text-7xl text-green-400 mb-4">verified</span>
+                <h2 class="text-3xl font-bold mb-8">บันทึกข้อมูลเรียบร้อย!</h2>
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <button onclick="downloadCertificate()" class="bg-green-600 text-white px-10 py-5 rounded-2xl font-bold shadow-2xl hover:scale-105 transition">ดาวน์โหลดภาพ (PNG)</button>
+                    <button id="btn-back-to-admin" onclick="showSection('admin')" class="hidden bg-yellow-600 text-white px-10 py-5 rounded-2xl font-bold shadow-2xl transition">กลับหน้า Admin</button>
+                </div>
+            </div>
+            <div id="preview-display-container" class="mt-8 flex justify-center p-4 bg-gray-900/40 rounded-3xl border border-white/5"></div>
+        </section>
+
+        <section id="search-section" class="hidden max-w-2xl mx-auto glass-morphism p-8 text-center">
+            <h2 class="text-2xl font-bold mb-6 text-blue-200">ค้นหาเกียรติบัตร</h2>
+            <div class="flex gap-2 mb-8"><input type="text" id="search-query" class="input-field flex-grow text-white text-center" placeholder="พิมพ์ชื่อจริง..."><button onclick="doSearch()" class="bg-blue-600 px-8 rounded-xl font-bold">ค้นหา</button></div>
+            <div id="search-results-area" class="hidden overflow-x-auto bg-black/40 rounded-2xl border border-white/10 max-h-[400px]"><table class="admin-table w-full"><thead class="sticky top-0 bg-gray-900 text-white"><tr><th>เลขที่</th><th>ชื่อ-สกุล</th><th>โรงเรียน</th><th>ดูภาพ</th></tr></thead><tbody id="search-data-body"></tbody></table></div>
+            <button onclick="showSection('intro')" class="text-gray-400 mt-8 hover:text-white">กลับหน้าแรก</button>
+        </section>
+
+        <section id="admin-section" class="hidden max-w-6xl mx-auto glass-morphism p-8">
+            <div class="flex justify-between items-center mb-8"><h2 class="text-xl font-bold text-yellow-300">📊 รายการผู้ทำแบบสอบถาม</h2><div class="flex gap-2"><button onclick="exportToCSV()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-xs">Excel (CSV)</button><button onclick="showSection('intro')" class="bg-white/10 text-white px-4 py-2 rounded-lg text-xs">ปิด</button></div></div>
+            <div class="overflow-x-auto bg-black/40 rounded-2xl border border-white/10 max-h-[500px]"><table class="admin-table w-full"><thead class="sticky top-0 bg-gray-900 text-white"><tr><th>เลขที่</th><th>ชื่อ-สกุล</th><th>โรงเรียน</th><th>จัดการ</th></tr></thead><tbody id="admin-data-body"></tbody></table></div>
+        </section>
+
+    </main>
+
+    <div id="cert-capture-area"><div class="cert-inner"><div id="display-cert-id-wrapper"><span>เลขที่</span><span id="display-cert-id"></span></div><div id="display-name"></div></div></div>
+
+    <footer class="p-4 text-center text-[10px] border-t border-white/10 text-gray-400">© 2025 Power AI โรงเรียนน้ำพองศึกษา :By KOTCHA</footer>
+
+    <script>
+        const surveyQuestions = [
+            "1. สถานที่จัดงานกว้างขวาง เดินสบาย และหาบูธกิจกรรมได้ง่าย",
+            "2. พิธีเปิดงานมีความน่าสนใจและมีความเป็นสากล",
+            "3. ระยะเวลาในการจัดกิจกรรมแต่ละจุดมีความเหมาะสม",
+            "4. ผลงานของพี่ๆ และคุณครูที่นำมาจัดแสดงมีความน่าสนใจ",
+            "5. เนื้อหาความรู้ในแต่ละบูธมีความหลากหลายและไม่จำเจ",
+            "6. กิจกรรมในงานมีความเหมาะสมกับวัยและน่าเรียนรู้",
+            "7. บรรยากาศของโรงเรียนโดยรวมดูสะอาด สวยงาม และน่าสนใจ",
+            "8. ได้ร่วมสนุกและมีส่วนร่วมกับการลงมือทำกิจกรรมจริงๆ",
+            "9. กิจกรรมนี้ช่วย \"จุดประกายฝัน\" หรือสร้างแรงบันดาลใจให้ตนเอง",
+            "10. ได้รับความรู้และประสบการณ์ที่สามารถนำไปปรับใช้ต่อได้จริง"
+        ];
+
+        function buildSurvey() {
+            const container = document.getElementById('survey-questions-list');
+            if(!container) return;
+            container.innerHTML = surveyQuestions.map((q, i) => `
+                <div class="rating-row">
+                    <div class="text-[15px] md:text-[18px] font-normal text-gray-100 pr-2">${q}</div>
+                    <div class="rating-options-container">
+                        ${[5,4,3,2,1].map(v => `
+                            <label class="radio-box">
+                                <input type="radio" name="q_${i}" value="${v}">
+                                <span class="text-[12px] font-bold text-gray-400 mt-1">${v}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>`).join('');
+        }
+
+        function showSection(id) {
+            ['intro', 'survey', 'final', 'admin', 'result', 'search'].forEach(s => {
+                const el = document.getElementById(`${s}-section`);
+                if(el) el.classList.add('hidden');
+            });
+            const target = document.getElementById(`${id}-section`);
+            if(target) target.classList.remove('hidden');
+            window.scrollTo(0,0);
+        }
+
+        function validateIntro() {
+            if(!document.getElementById('user-gender').value || !document.getElementById('user-status').value) return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาเลือกเพศ และสถานภาพก่อนครับ', 'warning');
+            buildSurvey(); showSection('survey');
+        }
+
+        function validateSurvey() {
+            let ok = true;
+            surveyQuestions.forEach((_, i) => { if(!document.querySelector(`input[name="q_${i}"]:checked`)) ok = false; }); 
+            if(!ok) return Swal.fire('ประเมินไม่ครบ', 'กรุณาให้คะแนนครบทั้ง 10 ข้อครับ', 'info');
+            showSection('final');
+        }
+
+        async function finishProcess() {
+            const name = document.getElementById('user-fullname').value.trim();
+            const school = document.getElementById('user-school').value.trim();
+            if(!name || !school) return Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกทั้งชื่อและโรงเรียนครับ', 'warning');
+            
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            
+            try {
+                // แก้ไข: ใช้เลขสุ่มแทนเลขรัน เพื่อรองรับคนเยอะ
+                const no = window.generateCertNumber(); 
+                
+                const results = {};
+                surveyQuestions.forEach((q, i) => { results[q] = document.querySelector(`input[name="q_${i}"]:checked`)?.value; });
+                
+                await window.saveSurveyToCloud({ 
+                    fullName: name, 
+                    school, 
+                    gender: document.getElementById('user-gender').value, 
+                    status: document.getElementById('user-status').value, 
+                    certNo: no, 
+                    results, 
+                    wowBooth: document.getElementById('wow-booth').value, 
+                    suggestion: document.getElementById('suggestions').value 
+                });
+                
+                await generateAndShowPreview(name, no, false);
+                Swal.close();
+            } catch (error) { 
+                Swal.fire({ icon: 'error', title: 'บันทึกไม่สำเร็จ', text: error.message }); 
+            }
+        }
+
+        async function generateAndShowPreview(name, no, fromAdmin = true) {
+            document.getElementById('display-name').innerText = name;
+            document.getElementById('display-cert-id').innerText = no;
+            
+            showSection('result');
+            if(fromAdmin) { document.getElementById('btn-back-to-admin').classList.remove('hidden'); } 
+            else { document.getElementById('btn-back-to-admin').classList.add('hidden'); }
+
+            await new Promise(r => setTimeout(r, 1200));
+            const captureArea = document.getElementById('cert-capture-area');
+            const canvas = await html2canvas(captureArea, { scale: 2, useCORS: true, backgroundColor: null, width: 1122, height: 794, scrollX: 0, scrollY: 0, x: 0, y: 0, logging: false });
+            const previewImg = new Image(); previewImg.src = canvas.toDataURL('image/png'); previewImg.className = "max-w-full h-auto rounded-lg shadow-2xl";
+            const container = document.getElementById('preview-display-container'); container.innerHTML = ''; container.appendChild(previewImg);
+        }
+
+        async function doSearch() {
+            const queryText = document.getElementById('search-query').value.trim();
+            if(!queryText) return Swal.fire('ระบุคำค้นหา', 'กรุณากรอกชื่อครับ', 'info');
+            
+            Swal.fire({ title: 'กำลังค้นหา...', didOpen: () => Swal.showLoading() });
+            
+            try {
+                // แก้ไข: ใช้ฟังก์ชันค้นหาแบบใหม่
+                const filtered = await window.searchSurveyByName(queryText);
+                
+                if(filtered.length > 0) {
+                    document.getElementById('search-data-body').innerHTML = filtered.map(d => `<tr><td>${d.certNo}</td><td class="text-white">${d.fullName}</td><td>${d.school}</td><td><button onclick="generateAndShowPreview('${d.fullName}', '${d.certNo}', false)" class="bg-blue-600 p-1 rounded text-white"><span class="material-icons text-sm">visibility</span></button></td></tr>`).join('');
+                    document.getElementById('search-results-area').classList.remove('hidden'); 
+                    Swal.close();
+                } else { Swal.fire('ไม่พบข้อมูล', 'ไม่พบรายชื่อนี้ในระบบครับ', 'error'); }
+            } catch (e) { 
+                console.error(e);
+                Swal.fire('Error', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error'); 
+            }
+        }
+
+        async function openAdmin() {
+            const pin = await Swal.fire({ title: 'รหัสผ่าน Admin', input: 'password', confirmButtonColor: '#0d47a1' });
+            if (pin.value !== '1234') return;
+            
+            Swal.fire({ title: 'กำลังโหลด...', didOpen: () => Swal.showLoading() });
+            // ใช้ฟังก์ชันดึงทั้งหมดเฉพาะ Admin
+            const data = await window.fetchAllSurveysForAdmin();
+            
+            if(data.length > 0) {
+                document.getElementById('admin-data-body').innerHTML = data.map(d => `<tr><td>${d.certNo}</td><td class="text-white">${d.fullName}</td><td>${d.school}</td><td><button onclick="generateAndShowPreview('${d.fullName}', '${d.certNo}', true)" class="bg-blue-600 p-1 rounded text-white"><span class="material-icons text-sm">visibility</span></button></td></tr>`).join('');
+            } else { document.getElementById('admin-data-body').innerHTML = '<tr><td colspan="4" class="text-center py-4">ไม่มีข้อมูล</td></tr>'; }
+            Swal.close(); showSection('admin');
+        }
+
+        async function exportToCSV() {
+            const data = await window.fetchAllSurveysForAdmin();
+            if (data.length === 0) return Swal.fire('ไม่มีข้อมูล', 'ยังไม่มีผู้ทำแบบสอบถาม', 'info');
+            
+            let headers = ["เลขที่", "ชื่อ-นามสกุล", "โรงเรียน", "เพศ", "สถานภาพ"];
+            surveyQuestions.forEach(q => headers.push(q));
+            headers.push('11. บูธที่ "ว้าว" ที่สุดในวันนี้ คือ', "12. สิ่งที่อยากให้มีเพิ่มเติมในงานครั้งหน้า", "วันที่บันทึก");
+
+            let csvContent = "\uFEFF" + headers.map(h => `"${h}"`).join(",") + "\n";
+            data.forEach(d => {
+                let row = [`${d.certNo}`, `"${d.fullName}"`, `"${d.school}"`, `"${d.gender}"`, `"${d.status}"`];
+                surveyQuestions.forEach(q => {
+                    row.push(`"${d.results ? d.results[q] : '-'}"`);
+                });
+                row.push(`"${d.wowBooth || '-'}"`, `"${d.suggestion || '-'}"`, `"${d.timestamp}"`);
+                csvContent += row.join(",") + "\n";
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `Report_NPS_Expo_2025_Complete.csv`; link.click();
+        }
+
+        async function downloadCertificate() {
+            const previewImg = document.querySelector('#preview-display-container img');
+            if(!previewImg) return Swal.fire('ข้อผิดพลาด', 'ไม่พบภาพเกียรติบัตร', 'error');
+            const link = document.createElement('a'); link.download = `Cert_${document.getElementById('display-name').innerText}.png`; link.href = previewImg.src; link.click();
+        }
+
+        document.addEventListener('DOMContentLoaded', buildSurvey);
+    </script>
+</body>
+</html>
