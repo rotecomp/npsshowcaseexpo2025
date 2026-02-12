@@ -20,7 +20,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, addDoc, collection, getDocs, query, where, limit, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // [เพิ่ม] runTransaction เข้ามาใน import
+        import { getFirestore, doc, addDoc, collection, getDocs, query, where, limit, orderBy, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Config Firebase ---
         const myCustomConfig = {
@@ -39,7 +40,7 @@
 
         let currentUser = null;
 
-        // ฟังก์ชันบันทึกข้อมูล (ไม่ต้องรอคิวเลขที่แล้ว)
+        // ฟังก์ชันบันทึกข้อมูล
         window.saveSurveyToCloud = async (data) => {
             if (!currentUser) throw new Error("ระบบกำลังเชื่อมต่อ... กรุณารอสักครู่");
             
@@ -48,35 +49,61 @@
                 ...data, 
                 timestamp: new Date().toISOString(), 
                 userId: currentUser.uid,
-                createdAt: new Date() // เพิ่ม Field นี้ไว้เรียงลำดับเวลาได้ง่าย
+                createdAt: new Date()
             });
         };
 
-        // [แก้ไขใหม่] สร้างเลขที่แบบสุ่ม 6 หลัก (แก้ปัญหาคอขวด Transaction)
-        window.generateCertNumber = () => {
-            // สุ่มเลข 100000 - 999999
-            const randomNum = Math.floor(100000 + Math.random() * 900000);
-            return randomNum.toString(); 
+        // [แก้ไขล่าสุด] ระบบรันเลขที่เรียงลำดับ 853 -> 4853 (Transaction)
+        window.getNextCertNumber = async () => {
+            // ใช้ไฟล์เก็บตัวนับชื่อ counters_running เพื่อเริ่มนับใหม่
+            const counterRef = doc(db, 'artifacts', appId, 'public', 'data', 'counters_running'); 
+
+            try {
+                let finalNum = 853; // เลขเริ่มต้น
+
+                await runTransaction(db, async (transaction) => {
+                    const counterSnap = await transaction.get(counterRef);
+
+                    if (!counterSnap.exists()) {
+                        // คนแรกของระบบ เริ่มที่ 853
+                        transaction.set(counterRef, { lastNumber: 853 });
+                        finalNum = 853;
+                    } else {
+                        // คนถัดไป เอาเลขล่าสุด + 1
+                        const lastNum = counterSnap.data().lastNumber;
+                        // ป้องกันกรณีเลขในฐานข้อมูลต่ำกว่า 853 (Safety check)
+                        const nextVal = (lastNum < 853 ? 853 : lastNum) + 1;
+                        
+                        transaction.update(counterRef, { lastNumber: nextVal });
+                        finalNum = nextVal;
+                    }
+                });
+
+                return finalNum.toString();
+            } catch (e) {
+                console.error("Transaction failed: ", e);
+                // ถ้าชนกันจริงๆ ให้แจ้งเตือน User
+                throw new Error("ระบบกำลังจัดสรรเลขที่ (คิวแน่น) กรุณากดปุ่มส่งข้อมูลใหม่อีกครั้งครับ");
+            }
         };
 
-        // [แก้ไขใหม่] ค้นหาแบบเจาะจง (ประหยัดโควตาและเร็วกว่า)
+        // [คงเดิม] ค้นหาแบบเจาะจง
         window.searchSurveyByName = async (nameQuery) => {
             if (!currentUser || !nameQuery) return [];
             
-            // ใช้เทคนิคค้นหาแบบ StartsWith ของ Firestore
             const surveysRef = collection(db, 'artifacts', appId, 'public', 'data', 'surveys');
             const q = query(
                 surveysRef, 
                 where('fullName', '>=', nameQuery),
                 where('fullName', '<=', nameQuery + '\uf8ff'),
-                limit(10) // ดึงมาแค่ 10 รายการพอ เพื่อความเร็ว
+                limit(10)
             );
             
             const querySnapshot = await getDocs(q);
             return querySnapshot.docs.map(doc => doc.data());
         };
 
-        // ฟังก์ชันดึงทั้งหมด (เก็บไว้ใช้เฉพาะ Admin ตอน Export)
+        // [คงเดิม] ฟังก์ชันดึงทั้งหมด (Admin)
         window.fetchAllSurveysForAdmin = async () => {
             if (!currentUser) return [];
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'surveys'), orderBy('createdAt', 'desc'), limit(1000));
@@ -323,8 +350,9 @@
             Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
             
             try {
-                // แก้ไข: ใช้เลขสุ่มแทนเลขรัน เพื่อรองรับคนเยอะ
-                const no = window.generateCertNumber(); 
+                // [แก้ไข: ใช้ Transaction เพื่อรันเลขที่ 853->4853]
+                // ต้องใช้ await เพราะต้องรอคิวจาก Server
+                const no = await window.getNextCertNumber(); 
                 
                 const results = {};
                 surveyQuestions.forEach((q, i) => { results[q] = document.querySelector(`input[name="q_${i}"]:checked`)?.value; });
@@ -369,7 +397,6 @@
             Swal.fire({ title: 'กำลังค้นหา...', didOpen: () => Swal.showLoading() });
             
             try {
-                // แก้ไข: ใช้ฟังก์ชันค้นหาแบบใหม่
                 const filtered = await window.searchSurveyByName(queryText);
                 
                 if(filtered.length > 0) {
@@ -388,7 +415,6 @@
             if (pin.value !== '1234') return;
             
             Swal.fire({ title: 'กำลังโหลด...', didOpen: () => Swal.showLoading() });
-            // ใช้ฟังก์ชันดึงทั้งหมดเฉพาะ Admin
             const data = await window.fetchAllSurveysForAdmin();
             
             if(data.length > 0) {
@@ -428,5 +454,4 @@
         document.addEventListener('DOMContentLoaded', buildSurvey);
     </script>
 </body>
-
 </html>
